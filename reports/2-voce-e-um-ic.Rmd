@@ -1,6 +1,6 @@
 ---
 title: "Implementando ICs"
-author: "Nazareno"
+author: "Jayne Morais"
 output:
   html_document:
     theme: readable
@@ -12,6 +12,8 @@ output:
     toc: yes
     toc_float: yes
 ---
+# L3P2: ICs via bootstrap
+## Jayne Morais - Mestrado UFCG 2019.1
 
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -27,7 +29,6 @@ set.seed(12345)
 lastfm = read_csv(here::here("data/experimento-lastfm.csv"), 
                   col_types = cols(.default = col_double(), 
                                    user = col_character()))
-
 lastfm = lastfm %>% 
   sample_n(300) %>% 
   select(news, old, mediana_pop)
@@ -39,7 +40,415 @@ glimpse(lastfm)
 
 Utilizaremos ICs para estimar duas métricas sobre os usuários do LastFM em geral durante um período de 6 meses. Em ambos os casos faremos isso a partir de uma amostra de 300 usuários. As duas métricas são: 
 
-1. Qual a proporção de novos artistas em geral escutada por usuários?
-2. Para os usuários que gostam de música muito pop (mediana_pop > 5), qual a correlação entre a popularidade mediana dos artistas escutado e a proporção dos artistas escutados que eram novos. 
+## 1. Qual a proporção de novos artistas em geral escutada por usuários?
 
+a. Implementando bootstraps
+
+Primeiramente gera-se uma nova coluna, a qual contém a proporção de novos artistas:
+
+```{r}
+minha_amostra = lastfm %>%
+    mutate(proporcao_novos_artitas = (news / (news + old)))
+
+minha_amostra
+
+funcao_theta = function(df) {
+  df %>%
+    pull(proporcao_novos_artitas) %>% #Tranforma uma coluna e um vetor
+    mean()
+}
+
+# theta = funcao_theta(minha_amostra)
+
+theta_c = funcao_theta(minha_amostra)
+```
+
+Gera-se manualmente 4000 reamostragens a partir da amostra de 300, em seguida pode-se observar a distribuição dos dados gerados pela reamostragem $(\hat{\theta}*)$ e a diferença entre a distribuição da amostra e da reamostra $(\hat{\theta}* - \hat{\theta})$.
+
+```{r}
+
+meu_primeiro_bootstrap <- function(x){
+  proporcao_novos_artitas = x %>% pull(proporcao_novos_artitas)
+  boot_x <- sample(proporcao_novos_artitas,           # amostre dos dados
+  size = NROW(proporcao_novos_artitas), # tamanho igual ao recebido
+  replace = TRUE) # aqui é o bootstrap
+  
+  return(mean(boot_x))
+}
+set.seed(1212)
+
+repeticoes = 4000
+
+# A REAMOSTRAGEM
+reamostragens = tibble(i = 1:repeticoes) %>% 
+  mutate(theta_c_s = map_dbl(i, ~ meu_primeiro_bootstrap(minha_amostra)))
+
+reamostragens
+
+ci_amostragens = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c) %>% 
+  mutate(conf.low = theta_c + quantile(erro, .025), 
+         conf.high = theta_c + quantile(erro, .975), 
+         statistic = theta_c) %>% 
+  select(conf.low, statistic, conf.high)
+    
+    
+reamostragens %>%
+  ggplot(aes(x = theta_c_s)) +
+  geom_histogram(binwidth = .005,
+                 colour = "darkorange",
+                 fill = "white")
+
+reamostragens %>%
+  ggplot(aes(x = theta_c_s - theta_c)) +
+  geom_histogram(binwidth = .005,
+                 colour = "darkblue",
+                 fill = "white")
+```
+
+
+### Calculando o IC
+
+Agora usamos a distribuição de $\delta* = \hat{\theta}* - \hat{\theta}$ no lugar da de $\delta$.
+
+```{r}
+intervalo = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c) %>% 
+  summarise(erro_i = quantile(erro, .025), 
+            erro_s = quantile(erro, .975))
+
+#intervalo
+```
+
+Agora fazemos o mesmo que antes para estimar onde $\theta$ está usando  $\hat{\theta}$.
+
+```{r}
+intervalo = intervalo %>% 
+  mutate(valor_i = theta_c + erro_i, 
+         valor_s = theta_c + erro_s)
+
+intervalo
+```
+
+
+```{r}
+ggplot() +
+  geom_rect(
+    data = intervalo,
+    aes(xmin = valor_i, xmax = valor_s),
+    ymin = -Inf,
+    ymax = Inf,
+    fill = "gold",
+    alpha = .25
+  ) +
+  geom_histogram(
+    data = reamostragens,
+    aes(theta_c_s),
+    binwidth = .005,
+    fill = "white",
+    colour = "darkgrey"
+  ) +
+  geom_vline(xintercept = theta_c,
+             color = "blue",
+             size = 1.2) +
+  labs(title = expression("Intervalo estimado via bootstrap"))
+```
+
+Gera-se o detalhamento dos dados manualmente:
+
+```{r}
+ci_manual = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c) %>% 
+  mutate(conf.low = theta_c + quantile(erro, .025), 
+         conf.high = theta_c + quantile(erro, .975), 
+         statistic = theta_c)
+
+glimpse(ci_manual)
+```
+
+
+b. Calculando por meio da biblioteca do bootstrap (boot)
+
+```{r}
+library(boot)
+
+###############################################
+
+#PRA QUE SERVE O SLICE?
+    
+    #PQ MEU CÓDIGO SÓ FUNCIONA SE EU COLOCAR O $proporcao_novos_artitas
+
+#########################################################
+
+theta <- function(d, i) {
+    mean(
+        (d %>% 
+            slice(i) %>% 
+            mutate(proporcao_novos_artitas = news / (news + old))
+        )$proporcao_novos_artitas
+    ) 
+}
+
+booted <- boot(data = minha_amostra, 
+               statistic = theta, 
+               R = 4000)
+
+ci_via_boot = tidy(booted, 
+          conf.level = .95,
+          conf.method = "bca",
+          conf.int = TRUE)
+
+glimpse(ci_via_boot)
+```
+
+Agora, analisa-se os intervalos de confiança e o valor de theta.
+```{r}
+plot1 = ci_manual %>%
+    ggplot(aes(
+        x = "",
+        y = statistic,
+        ymin = conf.low,
+        ymax = conf.high
+    )) +
+    geom_pointrange() +
+    geom_point(size = 3) + 
+    labs(x = "Via implementação manual", 
+         y = "Proporção de novos artistas")
+
+plot2 = ci_via_boot %>%
+    ggplot(aes(
+        x = "",
+        y = statistic,
+        ymin = conf.low,
+        ymax = conf.high
+    )) +
+    geom_pointrange() +
+    geom_point(size = 3) + 
+    labs(x = "Via biblioteca", 
+         y = "Proporção de novos artistas")
+
+grid.arrange(plot1, plot2, ncol = 2)
+
+```
+
+#### Conclusões
+1. Qual a proporção de novos artistas em geral escutada por usuários?
+Theta (implementação manual) = 0.242365
+Theta (via biblioteca) = 0.242366
+
+IC (implementação manual) = [0.2308375	0.2544643]
+IC (via biblioteca) = [0.2311165, 0.2546783]
+
+Com 95% de confiança, pode-se afirmar que a proporção de novos artistas escutados está entre 23% e 25%
+
+## 2. Para os usuários que gostam de música muito pop (mediana_pop > 5), qual a correlação entre a popularidade mediana dos artistas escutado e a proporção dos artistas escutados que eram novos. 
+
+Primeiramente, analisa-se a distribuição dos dados de popularidade de mediana dos artista. Posteriormente, analisa-se a relação entre as duas variáveis mencionadas acima.
+
+```{r}
+minha_amostra_pop = minha_amostra %>% 
+    filter(mediana_pop > 5)  %>% 
+    ggplot(aes(mediana_pop)) +
+    geom_density()
+minha_amostra_pop
+
+minha_amostra_pop = minha_amostra %>% 
+    filter(mediana_pop > 5)  %>% 
+    ggplot(aes(x = proporcao_novos_artitas, y = mediana_pop)) +
+    geom_point() +
+    geom_rug(alpha = .7, color = "#EF2917", sides = "l") + 
+    geom_smooth(aes(x = proporcao_novos_artitas, y = mediana_pop), method="lm", color="blue") +
+    labs(
+    title = "Relação entre a popularidade mediana dos artistas e proporção de novos artistas",
+    subtitle = "Popularidade acima que 5",
+    x = "Proporção de novos artistas",
+    y = "Popularidade Mediana (acima de 5)" 
+  ) 
+
+minha_amostra_pop
+
+```
+
+a. Implementando bootstraps
+
+Calcular a correlação usando o coeficiente de Pearson.
+Em seguida, gera-se manualmente 4000 reamostragens a partir da amostra de 300 (igual ao tamanho do input), em seguida pode-se observar a distribuição dos dados gerados pela reamostragem $(\hat{\theta}*)$ e a diferença entre a distribuição da amostra e da reamostra $(\hat{\theta}* - \hat{\theta})$.
+
+```{r}
+minha_amostra_pop = minha_amostra %>% 
+    filter(mediana_pop > 5)  
+
+minha_amostra_pop
+
+
+funcao_theta_pop = function(df) {
+    sample = df %>% 
+    sample_n(NROW(df), replace = TRUE)
+    return(cor(x = df$mediana_pop, y = df$proporcao_novos_artitas, method = "pearson"))
+}
+
+theta_c_pop_correlacao = funcao_theta_pop(minha_amostra_pop)
+theta_c_pop_correlacao
+
+repeticoes = 4000
+
+# A REAMOSTRAGEM
+reamostragens = tibble(i = 1:repeticoes) %>% 
+  mutate(theta_c_s = map_dbl(i, ~ funcao_theta_pop(minha_amostra_pop)))
+
+#reamostragens
+
+ci_amostragens = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c_pop_correlacao) %>% 
+  mutate(conf.low = theta_c_pop_correlacao + quantile(erro, .025), 
+         conf.high = theta_c_pop_correlacao + quantile(erro, .975), 
+         statistic = theta_c_pop_correlacao) %>% 
+  select(conf.low, statistic, conf.high)
+ 
+########################################################   
+
+  # PORQUE NÃO CONSIGO AJUSTAR ESSE GRÁFICO?
+
+########################################################   
+reamostragens %>%
+  ggplot(aes(x = theta_c_s)) +
+  geom_histogram(binwidth = .000000000000005,
+                 colour = "darkorange",
+                 fill = "white")
+
+reamostragens %>%
+  ggplot(aes(x = theta_c_s - theta_c_pop_correlacao)) +
+  geom_histogram(binwidth = 5,
+                 colour = "darkblue",
+                 fill = "white")
+
+```
+
+Agora usamos a distribuição de $\delta* = \hat{\theta}* - \hat{\theta}$ no lugar da de $\delta$.
+
+```{r}
+intervalo = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c_pop_correlacao) %>% 
+  summarise(erro_i = quantile(erro, .025), 
+            erro_s = quantile(erro, .975))
+
+#intervalo
+```
+
+Agora fazemos o mesmo que antes para estimar onde $\theta$ está usando  $\hat{\theta}$.
+
+```{r}
+intervalo = intervalo %>% 
+  mutate(valor_i = theta_c_pop_correlacao + erro_i, 
+         valor_s = theta_c_pop_correlacao + erro_s)
+
+intervalo
+```
+
+
+```{r}
+
+############################################################
+
+# PQ NÃO DÁ PRA VISUALIZAR O INTERVALO DE CONFIANÇA?
+
+
+############################################################
+ggplot() +
+  geom_rect(
+    data = intervalo,
+    aes(xmin = valor_i, xmax = valor_s),
+    ymin = -Inf,
+    ymax = Inf,
+    fill = "gold",
+    alpha = .25
+  ) +
+  geom_histogram(
+    data = reamostragens,
+    aes(theta_c_s),
+    binwidth = .0005,
+    fill = "white",
+    colour = "darkgrey"
+  ) +
+  geom_vline(xintercept = theta_c_pop_correlacao,
+             color = "blue",
+             size = 1.2) +
+  labs(title = expression("Intervalo estimado via bootstrap"))
+```
+
+Gera-se o detalhamento dos dados manualmente:
+
+```{r}
+ci_manual_pop = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c_pop_correlacao) %>% 
+  mutate(conf.low = theta_c_pop_correlacao + quantile(erro, .025), 
+         conf.high = theta_c_pop_correlacao + quantile(erro, .975), 
+         statistic = theta_c_pop_correlacao)
+
+glimpse(ci_manual_pop)
+```
+
+
+b. Calculando por meio da biblioteca do bootstrap (boot)
+
+```{r}
+library(boot)
+
+###############################################
+
+#PRA QUE SERVE O SLICE?
+    
+    #PQ MEU CÓDIGO SÓ FUNCIONA SE EU COLOCAR O $proporcao_novos_artitas
+
+#########################################################
+
+theta <- function(d, i) {
+    df = d %>% 
+            slice(i) %>% 
+            filter(mediana_pop > 5)
+    cor(x = df$mediana_pop, y = df$proporcao_novos_artitas, method = "pearson")
+}
+
+booted <- boot(data = minha_amostra_pop, 
+               statistic = theta, 
+               R = 4000)
+
+ci_via_boot_pop = tidy(booted, 
+          conf.level = .95,
+          conf.method = "bca",
+          conf.int = TRUE)
+
+glimpse(ci_via_boot_pop)
+```
+Agora, analisa-se os intervalos de confiança e o valor de theta.
+```{r}
+plot1 = ci_manual_pop %>%
+    ggplot(aes(
+        x = "",
+        y = statistic,
+        ymin = conf.low,
+        ymax = conf.high
+    )) +
+    geom_pointrange() +
+    geom_point(size = 3) + 
+    labs(x = "Via implementação manual", 
+         y = "Proporção de novos artistas")
+
+plot2 = ci_via_boot_pop %>%
+    ggplot(aes(
+        x = "",
+        y = statistic,
+        ymin = conf.low,
+        ymax = conf.high
+    )) +
+    geom_pointrange() +
+    geom_point(size = 3) + 
+    labs(x = "Via biblioteca", 
+         y = "Proporção de novos artistas")
+
+grid.arrange(plot1, plot2, ncol = 2)
+
+```
+
+A correlação entre novos artitas escutados e 
 Crie intervalos com 95% de confiança.
