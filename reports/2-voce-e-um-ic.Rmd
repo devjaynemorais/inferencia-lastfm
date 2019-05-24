@@ -19,6 +19,8 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 theme_set(theme_bw())
+#install.packages("gridExtra")
+install.packages("grid")
 ```
 
 ## Os dados
@@ -171,7 +173,7 @@ b. Calculando por meio da biblioteca do bootstrap (boot)
 
 ```{r}
 library(boot)
-
+library(broom)
 ###############################################
 
 #PRA QUE SERVE O SLICE?
@@ -282,10 +284,19 @@ minha_amostra_pop
 
 
 funcao_theta_pop = function(df) {
-    sample = df %>% 
-    sample_n(NROW(df), replace = TRUE)
-    return(cor(x = df$mediana_pop, y = df$proporcao_novos_artitas, method = "pearson"))
+    #sample_n(NROW(df), 
+    #replace = TRUE)
+    
+    boot_df <- sample_n(df,
+                        NROW(df), 
+                        replace = TRUE)
+    pearson = pull(boot_df %>% 
+        summarise(pearson = cor(x = mediana_pop, y = proporcao_novos_artitas, method = "pearson")))
+    
+    return(pearson)
 }
+
+set.seed(1212)
 
 theta_c_pop_correlacao = funcao_theta_pop(minha_amostra_pop)
 theta_c_pop_correlacao
@@ -296,7 +307,7 @@ repeticoes = 4000
 reamostragens = tibble(i = 1:repeticoes) %>% 
   mutate(theta_c_s = map_dbl(i, ~ funcao_theta_pop(minha_amostra_pop)))
 
-#reamostragens
+reamostragens
 
 ci_amostragens = reamostragens %>% 
   mutate(erro = theta_c_s - theta_c_pop_correlacao) %>% 
@@ -304,21 +315,16 @@ ci_amostragens = reamostragens %>%
          conf.high = theta_c_pop_correlacao + quantile(erro, .975), 
          statistic = theta_c_pop_correlacao) %>% 
   select(conf.low, statistic, conf.high)
- 
-########################################################   
 
-  # PORQUE NÃO CONSIGO AJUSTAR ESSE GRÁFICO?
-
-########################################################   
 reamostragens %>%
   ggplot(aes(x = theta_c_s)) +
-  geom_histogram(binwidth = .000000000000005,
+  geom_histogram(binwidth = .05,
                  colour = "darkorange",
                  fill = "white")
 
 reamostragens %>%
   ggplot(aes(x = theta_c_s - theta_c_pop_correlacao)) +
-  geom_histogram(binwidth = 5,
+  geom_histogram(binwidth = .05,
                  colour = "darkblue",
                  fill = "white")
 
@@ -332,7 +338,7 @@ intervalo = reamostragens %>%
   summarise(erro_i = quantile(erro, .025), 
             erro_s = quantile(erro, .975))
 
-#intervalo
+intervalo
 ```
 
 Agora fazemos o mesmo que antes para estimar onde $\theta$ está usando  $\hat{\theta}$.
@@ -348,12 +354,6 @@ intervalo
 
 ```{r}
 
-############################################################
-
-# PQ NÃO DÁ PRA VISUALIZAR O INTERVALO DE CONFIANÇA?
-
-
-############################################################
 ggplot() +
   geom_rect(
     data = intervalo,
@@ -366,7 +366,7 @@ ggplot() +
   geom_histogram(
     data = reamostragens,
     aes(theta_c_s),
-    binwidth = .0005,
+    binwidth = .05,
     fill = "white",
     colour = "darkgrey"
   ) +
