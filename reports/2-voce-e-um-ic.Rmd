@@ -21,6 +21,8 @@ library(tidyverse)
 theme_set(theme_bw())
 #install.packages("gridExtra")
 #install.packages("grid")
+library(gridExtra)
+library(grid)
 ```
 
 ## Os dados
