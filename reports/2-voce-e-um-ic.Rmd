@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 theme_set(theme_bw())
 #install.packages("gridExtra")
-install.packages("grid")
+#install.packages("grid")
 ```
 
 ## Os dados
@@ -202,6 +202,7 @@ ci_via_boot = tidy(booted,
 
 glimpse(ci_via_boot)
 ```
+
 
 Agora, analisa-se os intervalos de confiança e o valor de theta.
 ```{r}
