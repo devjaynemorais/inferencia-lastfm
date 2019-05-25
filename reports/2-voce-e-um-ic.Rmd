@@ -23,6 +23,8 @@ theme_set(theme_bw())
 #install.packages("grid")
 library(gridExtra)
 library(grid)
+library(boot)
+library(broom)
 ```
 
 ## Os dados
@@ -46,7 +48,7 @@ Utilizaremos ICs para estimar duas métricas sobre os usuários do LastFM em ger
 
 ## 1. Qual a proporção de novos artistas em geral escutada por usuários?
 
-a. Implementando bootstraps
+#### a. Implementando bootstraps manualmente
 
 Primeiramente gera-se uma nova coluna, a qual contém a proporção de novos artistas:
 
@@ -171,18 +173,9 @@ glimpse(ci_manual)
 ```
 
 
-b. Calculando por meio da biblioteca do bootstrap (boot)
+#### b. Calculando por meio da biblioteca do bootstrap (boot)
 
 ```{r}
-library(boot)
-library(broom)
-###############################################
-
-#PRA QUE SERVE O SLICE?
-    
-    #PQ MEU CÓDIGO SÓ FUNCIONA SE EU COLOCAR O $proporcao_novos_artitas
-
-#########################################################
 
 theta <- function(d, i) {
     mean(
@@ -236,15 +229,11 @@ grid.arrange(plot1, plot2, ncol = 2)
 
 ```
 
-#### Conclusões
-1. Qual a proporção de novos artistas em geral escutada por usuários?
-Theta (implementação manual) = 0.242365
-Theta (via biblioteca) = 0.242366
+### 1. Conclusão
 
-IC (implementação manual) = [0.2308375	0.2544643]
-IC (via biblioteca) = [0.2311165, 0.2546783]
+Na implementação manual foi obtido um valor de 0.242365 para o $\hat{\theta}$ e um intervalo de confiança de [0.2308375, 0.2544643]. Já na implementação via biblioteca (boot) foi obtido um valor de 0.242366 para o $\hat{\theta}$ e um intervalo de confiança de [0.2311165, 0.2546783]. 	
 
-Com 95% de confiança, pode-se afirmar que a proporção de novos artistas escutados está entre 23% e 25%
+Logo, os valores localizados dentro deste intervalo (para estimar o valor de $\theta$) não incluem o algarismo 0 e encontram-se cerca de uma casa decimal deste, o que aponta uma pequena diferença positiva. Com 95% de confiança, a partir dos dados da nossa amostra de tamanho 300, pode-se afirmar que a proporção de novos artistas escutados está entre 23% e 25% para todos os usuários da população, isto é, valor estimado para ${\theta}$.
 
 ## 2. Para os usuários que gostam de música muito pop (mediana_pop > 5), qual a correlação entre a popularidade mediana dos artistas escutado e a proporção dos artistas escutados que eram novos. 
 
@@ -272,9 +261,16 @@ minha_amostra_pop = minha_amostra %>%
 
 minha_amostra_pop
 
+ minha_amostra_pop = minha_amostra %>% 
+    filter(mediana_pop > 5)  %>% 
+     summarise(pearson = cor(mediana_pop, proporcao_novos_artitas, method = "pearson"), 
+            spearman = cor(mediana_pop, proporcao_novos_artitas, method = "spearman"), 
+            kendall = cor(mediana_pop, proporcao_novos_artitas, method = "kendall"))
+ minha_amostra_pop
+
 ```
 
-a. Implementando bootstraps
+#### a. Implementando bootstraps manualmente
 
 Calcular a correlação usando o coeficiente de Pearson.
 Em seguida, gera-se manualmente 4000 reamostragens a partir da amostra de 300 (igual ao tamanho do input), em seguida pode-se observar a distribuição dos dados gerados pela reamostragem $(\hat{\theta}*)$ e a diferença entre a distribuição da amostra e da reamostra $(\hat{\theta}* - \hat{\theta})$.
@@ -333,6 +329,8 @@ reamostragens %>%
 
 ```
 
+### Calculando o IC
+
 Agora usamos a distribuição de $\delta* = \hat{\theta}* - \hat{\theta}$ no lugar da de $\delta$.
 
 ```{r}
@@ -341,7 +339,7 @@ intervalo = reamostragens %>%
   summarise(erro_i = quantile(erro, .025), 
             erro_s = quantile(erro, .975))
 
-intervalo
+#intervalo
 ```
 
 Agora fazemos o mesmo que antes para estimar onde $\theta$ está usando  $\hat{\theta}$.
@@ -392,18 +390,10 @@ glimpse(ci_manual_pop)
 ```
 
 
-b. Calculando por meio da biblioteca do bootstrap (boot)
+#### b. Calculando por meio da biblioteca do bootstrap (boot)
 
 ```{r}
 library(boot)
-
-###############################################
-
-#PRA QUE SERVE O SLICE?
-    
-    #PQ MEU CÓDIGO SÓ FUNCIONA SE EU COLOCAR O $proporcao_novos_artitas
-
-#########################################################
 
 theta <- function(d, i) {
     df = d %>% 
@@ -423,6 +413,8 @@ ci_via_boot_pop = tidy(booted,
 
 glimpse(ci_via_boot_pop)
 ```
+
+
 Agora, analisa-se os intervalos de confiança e o valor de theta.
 ```{r}
 plot1 = ci_manual_pop %>%
@@ -453,5 +445,8 @@ grid.arrange(plot1, plot2, ncol = 2)
 
 ```
 
-A correlação entre novos artitas escutados e 
-Crie intervalos com 95% de confiança.
+### 2. Conclusão
+    
+Na implementação manual foi obtido um valor de -0.05612485 para o $\hat{\theta}$ e um intervalo de confiança de [-0.1799214, 0.06784313]. Já na implementação via biblioteca (boot) foi obtido um valor de -0.05679804 para o $\hat{\theta}$ e um intervalo de confiança de [-0.1805113, 0.06210831]. 
+    
+Com 95% de confiança, a partir da nossa amostra de tamanho 300, os valores localizados dentro deste intervalo (para estimar o valor de $\theta$) podem tanto ser muito próximos a zero (0.01 - diferença muito pequena), inclusive ser igual a zero (não possuir diferença), como também serem um pouco mais distante de zero no outro ponto (-0.17 - mas ainda considerada uma diferença pequena). Pode-se afirmar também que de acordo com o coeficiente de Pearson, a correlação entre a popularidade mediana de artistas escutados e a proporção de artistas novos da nossa amostra é de -0.056, isto é, existe uma correlação negativa fraca. 
